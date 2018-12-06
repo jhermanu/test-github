@@ -1,0 +1,129 @@
+#### Plotting 
+
+###code and explanations
+
+
+library(matlib)
+
+setwd('C:/Users/Johannes/Documents/Studium/Master/Masterarbeit/codes')
+data = read.csv('dataset.csv')
+
+sapply(data, function(x) sum(is.na(x))) #eur1MV JPY1MV CHF1MV und GBP1MV haben am meisten missing values, auch SMI20
+cleandata = na.omit(data) # loose half of datapoints- from 1990 on almost for all days
+
+class(data$X) # date is till now a factor, not a date
+data$X = as.Date(data$X, format = "%d/%m/%Y")  # classify as date
+cleandata$X = as.Date(cleandata$X, format = "%d/%m/%Y" )  ## classify as date
+
+length(data$X[data$X > cleandata$X[1]]) - length(cleandata$X) ## losing also 928 datapoints between 1990 and 2018
+attach(cleandata)
+
+library(zoo)
+#indexing the prices on 100
+equityindices = data.frame(S.P.500, EuroStoxx.50, Nikkei.225, SMI, FTSE.100)
+indexedequity = data.frame(X, sapply(equityindices, function(X) 100*X/X[1]))
+
+#getting equityreturns
+equityindices.z = zoo(equityindices, order.by = X)
+equity.returns = diff(equityindices.z)/lag(equityindices.z, -1)
+equity.returns = data.frame(X[-1], coredata(equity.returns, fmt = FALSE))
+
+#getting all exchange rates in USD terms
+CHFUSD = sapply(USDCHF, function(x) 1/x)
+JPYUSD = sapply(USDJPY, function(x) 1/x)
+FX = data.frame(X,EURUSD, JPYUSD, CHFUSD, GBPUSD)
+
+# getting currency spot rate returns
+spotrates.z = zoo(FX[,-1], order.by = X)
+FX.returns = diff(spotrates.z)/lag(spotrates.z, -1)
+FX.returns = data.frame(X[-1], coredata(FX.returns, fmt = FALSE))
+
+#getting real prices - multiply actual prices by exchange rate -- getting all market indices in dollar Terms
+realequityindices = data.frame(X, S.P.500, EuroStoxx.50*EURUSD, Nikkei.225*JPYUSD, SMI*CHFUSD, FTSE.100*GBPUSD)
+
+#getting real prices indexed to 100
+realindexedequity = data.frame(X, sapply(realequityindices[,-1], function(X) 100*X/X[1]))
+
+library(ggplot2)
+library(tidyverse)
+library(reshape2)
+library(gridExtra)
+##simple graphs
+#pricemovement indices
+cleandatalong = melt(cleandata[,1:6], id = "X")  # transform dataframe to use for ggplot
+plot1= ggplot(data=cleandatalong,
+              aes(x=X, y=value, color=variable)) +
+  geom_line() + labs(x = "Timeline", title = "absolute movement Indices")
+#realpricemove
+cleandatalong6 = melt(realequityindices, id = "X")
+plot2 = ggplot(data=cleandatalong6,
+               aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x="Timeline", title = "Indices movement adjust by appropriate FX rate")
+
+#indexprices normalized on 100
+cleandatalong5 = melt(indexedequity, id = "X")
+plot3 = ggplot(data=cleandatalong5,
+               aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x = "Timeline", title = "normalized movement Indices", subtitle = "normalized on first value, which is set to 100" )
+
+#real index prices, means actual prices multiplied by exchange rate
+cleandatalong7 = melt(realindexedequity, id = "X")
+plot4 = ggplot(data=cleandatalong7,
+               aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x = "Timeline", title = "normalized and adjusted for FX Indices movement", subtitle = "normalized on first value, which is set to 100 and multiplied by approriate FX rate" )
+#interest rates
+cleandatalong2 = melt(cleandata[,c(1,7:11)], id = "X") 
+plot5 = ggplot(data=cleandatalong2,
+       aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x = "Timeline", title = "Libor1Month movements")
+#exchange rates
+cleandatalong3 = melt(FX, id ="X")
+plot6 = ggplot(data=cleandatalong3,
+       aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x = "Timeline", title = "Exchange Rate price movements", subtitle = "all in USD terms")
+#forward rates
+cleandatalong4 = melt(cleandata[,c(1,16,18:19)], id = "X") # exchange rate absolut of JPYUSD is on different scale
+plot7 = ggplot(data=cleandatalong4,
+       aes(x=X, y=value, colour=variable)) +
+  geom_line() + labs(x = "Timeline", title = "price movement forward rates")
+
+#return series equity indices
+cleandatalong8 = melt(equity.returns, id = "X..1.")
+plot8 = ggplot(data=cleandatalong8,
+               aes(x=X..1., y=value, colour=variable))+
+  geom_line() + labs(x = "Timeline", title = "Returns of Equityindices", subtitle = "all in local currency")
+
+plot8
+
+#return series currency spotrate returns
+cleandatalong9 = melt(FX.returns, id = "X..1.")
+plot9 = ggplot(data=cleandatalong9,
+               aes(x=X..1., y=value, colour=variable))+
+  geom_line() + labs(x = "Timeline", title = "Returns of FX spot rates")
+
+plot9
+
+### plotting results
+
+##simple price movement graphs, with some adjustments according to exchange rates and indexing on first value
+plot1
+plot2
+# comparison actual prices to real prices(adjusted for exchange rate)
+grid.arrange(plot1 + xlab("Timeline"), plot2 + 
+               labs(title = "price Movement Indices * Appropriate FX", x = "Timeline"), ncol = 2)
+plot3 
+plot4
+##comparison price movement when exchange rate is taken into account
+grid.arrange(plot3 , plot4, ncol= 2) ##comparison indexed prices vs indexed prices corrected by exchange rate
+plot5
+plot6
+plot7
+
+library(PerformanceAnalytics)
+##correlation graphs
+chart.Correlation(equityindices, histogram = TRUE, pch = 20) # correlation over whole timeperiod 
+chart.Correlation(cleandata[,7:11], histogram = TRUE, pch = 20) # correlation over whole timepriod
+chart.Correlation(FX[,-1], histogram = TRUE, pch = 20) # correlation over whole timeperiod
+chart.Correlation(cleandata[,16:19], histogram = TRUE, pch = 20) #correlation over whole timeperiod
+
+
